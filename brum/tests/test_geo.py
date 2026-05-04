@@ -145,8 +145,11 @@ def _get_kml_path():
 
     candidates = [
         Path("data/raw/impact_zone.kml"),
+        Path("data/raw/limites_rejeitos_dia29_v2.kml"),
         Path("brum/data/raw/impact_zone.kml"),
+        Path("brum/data/raw/limites_rejeitos_dia29_v2.kml"),
         Path("../data/raw/impact_zone.kml"),
+        Path("../data/raw/limites_rejeitos_dia29_v2.kml"),
     ]
     for p in candidates:
         if p.exists():
