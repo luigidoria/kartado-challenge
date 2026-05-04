@@ -1,0 +1,57 @@
+paths:
+  raw_dir: "data/raw"
+  bronze_dir: "data/bronze"
+  silver_dir: "data/silver"
+  gold_dir: "data/gold"
+  kml_path: "data/raw/impact_zone.kml"
+  checkpoint_path: "data/gold/best_model.pth"
+
+red_threshold:
+  r_min: 150
+  g_max: 80
+  b_max: 80
+
+# Approximate KML bounding box for Brumadinho dam collapse impact zone
+kml_bbox:
+  lon_min: -44.175
+  lon_max: -44.095
+  lat_min: -20.195
+  lat_max: -20.140
+
+chip_size: 512
+stride: 384
+
+model:
+  encoder_name: "efficientnet-b0"
+  encoder_weights: "imagenet"
+  in_channels: 3
+  classes: 1
+
+training:
+  epochs: 50
+  batch_size: 4
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  num_workers: 4
+  seed: 42
+  bce_weight: 0.5
+  dice_weight: 0.5
+  train_frac: 0.667
+  val_frac: 0.167
+
+inference:
+  threshold: 0.5
+  min_area_px: 30
+  overlap_threshold: 0.5
+  gaussian_sigma_factor: 6  # chip_size // gaussian_sigma_factor
+
+mlflow:
+  experiment_name: "brumadinho_building_detection"
+  model_name: "brumadinho_building_segmenter"
+  tracking_uri: "mlruns"
+
+spark:
+  app_name: "BrumadinhoBuildingPipeline"
+  master: "local[*]"
+  executor_memory: "4g"
+  driver_memory: "4g"

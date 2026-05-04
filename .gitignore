@@ -1,0 +1,9 @@
+brum/data/bronze/
+brum/data/silver/
+brum/data/gold/
+brum/mlruns/
+*.pth
+*.pt
+.venv/
+__pycache__/
+.pytest_cache/
