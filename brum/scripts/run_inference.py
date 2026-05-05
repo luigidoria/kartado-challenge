@@ -45,6 +45,11 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Path to save annotated output PNG",
     )
+    parser.add_argument(
+        "--no-heatmap",
+        action="store_true",
+        help="Disable probability heatmap overlay (show polygon fills only)",
+    )
     return parser.parse_args()
 
 
@@ -115,6 +120,7 @@ def main() -> None:
         post["safe_polygons"],
         post["in_impact_polygons"],
         impact_zone_polygon=post.get("impact_polygon"),
+        prob_map=None if args.no_heatmap else prob_map,
     )
     annotated = add_legend(annotated, n_safe, n_impact)
     save_annotated_image(annotated, output_path)

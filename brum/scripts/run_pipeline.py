@@ -286,6 +286,7 @@ def stage_inference(
             safe_polygons=post["safe_polygons"],
             impact_polygons=post["in_impact_polygons"],
             impact_zone_polygon=post.get("impact_polygon"),
+            prob_map=prob_map,
         )
         annotated = add_legend(annotated, post["buildings_safe"], post["buildings_in_impact_zone"])
 
@@ -401,6 +402,15 @@ def main() -> None:
             logger.error("No silver chips — cannot train.")
             sys.exit(1)
         checkpoint_path = stage_train(cfg, brum_root, silver_records, args.epochs)
+
+        mlflow_cfg = cfg.get("mlflow", {})
+        tracking_uri = mlflow_cfg.get("tracking_uri", "mlruns")
+        if not Path(tracking_uri).is_absolute():
+            tracking_uri = str((brum_root / tracking_uri).resolve())
+        print(f"\n[mlflow] Experiment logged. To view results:")
+        print(f"         mlflow ui --backend-store-uri {tracking_uri}")
+        print(f"         → http://127.0.0.1:5000")
+        print(f"         (or run: python scripts/show_results.py)")
 
     # Stage 4
     results = stage_inference(cfg, brum_root, checkpoint_path, bronze_records)

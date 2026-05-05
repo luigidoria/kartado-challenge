@@ -315,7 +315,6 @@ def train(cfg: dict, silver_records: list[dict], output_dir: str | Path) -> str:
     mlflow.set_experiment(
         mlflow_cfg.get("experiment_name", "brumadinho_building_detection")
     )
-    mlflow.pytorch.autolog(log_every_n_epoch=1)
 
     best_iou = -1.0
     best_ckpt_path = str(output_dir / "best_model.pth")
@@ -439,5 +438,12 @@ def train(cfg: dict, silver_records: list[dict], output_dir: str | Path) -> str:
             )
         except Exception as exc:
             logger.warning(f"[train] Model registration skipped: {exc}")
+
+        tracking_uri_abs = Path(mlflow_cfg.get("tracking_uri", "mlruns")).resolve()
+        logger.info(
+            f"[mlflow] Experiment logged. To view results:\n"
+            f"         mlflow ui --backend-store-uri {tracking_uri_abs}\n"
+            f"         → http://127.0.0.1:5000"
+        )
 
     return best_ckpt_path

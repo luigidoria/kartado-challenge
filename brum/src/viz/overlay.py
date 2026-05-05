@@ -10,6 +10,38 @@ from PIL import Image
 from shapely.geometry import Polygon
 
 
+def draw_probability_overlay(
+    img_array: np.ndarray,
+    prob_map: np.ndarray,
+    alpha: float = 0.35,
+) -> np.ndarray:
+    """Blend a probability heatmap (jet colormap) semi-transparently onto the image.
+
+    Args:
+        img_array: (H, W, 3) uint8 RGB image.
+        prob_map: (H, W) float32 probability map in [0, 1].
+        alpha: Heatmap opacity (0 = invisible, 1 = fully opaque). Default 0.35.
+
+    Returns:
+        (H, W, 3) uint8 RGB image with heatmap blended underneath.
+    """
+    h, w = img_array.shape[:2]
+
+    # Resize prob_map to match image dimensions if needed
+    if prob_map.shape != (h, w):
+        prob_map = cv2.resize(prob_map, (w, h), interpolation=cv2.INTER_LINEAR)
+
+    # Normalise to [0, 255] and apply jet colormap (OpenCV output is BGR)
+    prob_u8 = np.clip(prob_map * 255, 0, 255).astype(np.uint8)
+    heatmap_bgr = cv2.applyColorMap(prob_u8, cv2.COLORMAP_JET)
+    # Convert BGR → RGB to match img_array
+    heatmap_rgb = cv2.cvtColor(heatmap_bgr, cv2.COLOR_BGR2RGB)
+
+    # Blend: result = (1-alpha)*img + alpha*heatmap
+    blended = cv2.addWeighted(img_array.astype(np.uint8), 1.0 - alpha, heatmap_rgb, alpha, 0)
+    return blended
+
+
 def draw_building_overlays(
     img_array: np.ndarray,
     safe_polygons: list[Polygon],
@@ -18,21 +50,27 @@ def draw_building_overlays(
     alpha: float = 0.45,
     safe_color: tuple[int, int, int] = (0, 200, 0),
     impact_color: tuple[int, int, int] = (220, 0, 0),
+    prob_map: np.ndarray | None = None,
+    heatmap_alpha: float = 0.35,
 ) -> np.ndarray:
     """Overlay building masks and optional impact zone boundary on image.
 
     Safe buildings → filled green with alpha blending.
     Impact buildings → filled red with alpha blending.
     Impact zone boundary → orange polyline (no fill).
+    Probability heatmap → jet colormap blended underneath (if prob_map provided).
 
     Args:
         img_array: (H, W, 3) or (H, W, 4) uint8 RGB/RGBA image.
         safe_polygons: Building polygons outside impact zone.
         impact_polygons: Building polygons inside impact zone.
         impact_zone_polygon: Overall impact zone boundary polygon.
-        alpha: Overlay transparency (0 = transparent, 1 = opaque).
+        alpha: Building polygon overlay transparency (0 = transparent, 1 = opaque).
         safe_color: RGB fill color for safe buildings.
         impact_color: RGB fill color for impact buildings.
+        prob_map: Optional (H, W) float32 probability map. When provided, a jet
+            heatmap is blended into the base image before drawing polygons.
+        heatmap_alpha: Opacity of the probability heatmap (default 0.35).
 
     Returns:
         (H, W, 3) uint8 annotated image.
@@ -42,6 +80,10 @@ def draw_building_overlays(
         base = img_array[:, :, :3].copy()
     else:
         base = img_array.copy()
+
+    # Apply probability heatmap as a base layer if provided
+    if prob_map is not None:
+        base = draw_probability_overlay(base, prob_map, alpha=heatmap_alpha)
 
     overlay = base.copy()
 
