@@ -2,52 +2,9 @@
 
 from __future__ import annotations
 
-import numpy as np
-import pytest
 from shapely.geometry import Polygon
 
-from src.inference.postprocess import classify_buildings, mask_to_instances
-
-
-# ---------------------------------------------------------------------------
-# mask_to_instances
-# ---------------------------------------------------------------------------
-
-
-def test_mask_to_instances_empty():
-    """All-zero probability map → no instances."""
-    prob_map = np.zeros((100, 100), dtype=np.float32)
-    result = mask_to_instances(prob_map)
-    assert result == []
-
-
-def test_mask_to_instances_single_blob():
-    """A filled 50×50 square above threshold → exactly 1 polygon."""
-    prob_map = np.zeros((200, 200), dtype=np.float32)
-    prob_map[75:125, 75:125] = 1.0
-
-    result = mask_to_instances(prob_map, min_area_px=30, threshold=0.5)
-    assert len(result) == 1
-    assert isinstance(result[0], Polygon)
-
-
-def test_mask_to_instances_filters_small():
-    """A 3×3 component (9px) with min_area_px=30 → filtered out."""
-    prob_map = np.zeros((100, 100), dtype=np.float32)
-    prob_map[10:13, 10:13] = 1.0  # 9 pixels
-
-    result = mask_to_instances(prob_map, min_area_px=30, threshold=0.5)
-    assert result == []
-
-
-def test_mask_to_instances_two_blobs():
-    """Two separated squares → 2 polygons."""
-    prob_map = np.zeros((300, 300), dtype=np.float32)
-    prob_map[10:50, 10:50] = 1.0   # blob 1: 40×40 = 1600 px
-    prob_map[200:250, 200:250] = 1.0  # blob 2: 50×50 = 2500 px
-
-    result = mask_to_instances(prob_map, min_area_px=30, threshold=0.5)
-    assert len(result) == 2
+from src.inference.postprocess import classify_buildings
 
 
 # ---------------------------------------------------------------------------

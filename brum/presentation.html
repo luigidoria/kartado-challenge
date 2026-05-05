@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brumadinho -- Deteccao de Edificacoes -- Kartado Challenge</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0f1117;
+    --bg2:      #1a1d27;
+    --bg3:      #242736;
+    --border:   #2e3147;
+    --text:     #e8eaf0;
+    --muted:    #8b91a8;
+    --red:      #c0392b;
+    --red-light:#e74c3c;
+    --green:    #27ae60;
+    --orange:   #e67e22;
+    --blue:     #3498db;
+    --accent:   #c0392b;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* -- Header -- */
+  header {
+    background: linear-gradient(135deg, #1a0808 0%, #2d0f0f 50%, #0f1117 100%);
+    border-bottom: 2px solid var(--red);
+    padding: 48px 0 36px;
+  }
+
+  header .container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .tag {
+    display: inline-block;
+    background: var(--red);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 3px;
+    width: fit-content;
+  }
+
+  header h1 {
+    font-size: clamp(24px, 4vw, 40px);
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+  }
+
+  header h1 span { color: var(--red-light); }
+
+  .header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 8px;
+  }
+
+  .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .meta-item strong { color: var(--text); }
+
+  .meta-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--red);
+    flex-shrink: 0;
+  }
+
+  /* -- Nav -- */
+  nav {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  nav .container {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+  }
+
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 14px 16px;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+
+  nav a:hover { color: var(--text); border-color: var(--border); }
+
+  /* -- Sections -- */
+  section {
+    padding: 56px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 8px;
+  }
+
+  section h2 {
+    font-size: clamp(20px, 3vw, 28px);
+    font-weight: 700;
+    margin-bottom: 24px;
+    letter-spacing: -0.3px;
+  }
+
+  section p { color: var(--muted); max-width: 760px; margin-bottom: 12px; }
+  section p strong { color: var(--text); }
+
+  /* -- Context cards -- */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+  }
+
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+  }
+
+  .card h3 {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+
+  .card p {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  /* -- Pipeline -- */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 28px 0;
+    flex-wrap: wrap;
+  }
+
+  .pipeline-stage {
+    flex: 1;
+    min-width: 160px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 18px 16px;
+    text-align: center;
+    position: relative;
+  }
+
+  .pipeline-stage:not(:first-child) {
+    border-left: none;
+  }
+
+  .pipeline-stage:first-child { border-radius: 8px 0 0 8px; }
+  .pipeline-stage:last-child  { border-radius: 0 8px 8px 0; }
+
+  .pipeline-stage::after {
+    content: '->';
+    position: absolute;
+    right: -12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: 16px;
+    z-index: 1;
+  }
+
+  .pipeline-stage:last-child::after { display: none; }
+
+  .stage-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-bottom: 8px;
+    display: inline-block;
+  }
+
+  .bronze  { background: #6b4c1e; color: #d4a047; }
+  .silver  { background: #2a3040; color: #a8b4c8; }
+  .gold    { background: #3a3010; color: #d4b832; }
+  .infer   { background: #1a2a1a; color: #5cb85c; }
+
+  .pipeline-stage h4 { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .pipeline-stage p  { font-size: 12px; color: var(--muted); margin: 0; }
+
+  /* -- Decision list -- */
+  .decisions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+    margin-top: 24px;
+  }
+
+  .decision {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--red);
+    border-radius: 0 6px 6px 0;
+    padding: 14px 16px;
+  }
+
+  .decision h4 { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .decision p  { font-size: 12px; color: var(--muted); margin: 0; }
+
+  /* -- Deliverables table -- */
+  .table-wrap { overflow-x: auto; margin-top: 20px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead th {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  tbody td {
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    vertical-align: top;
+  }
+
+  tbody tr:nth-child(even) td { background: var(--bg2); }
+
+  .check { color: var(--green); font-weight: 700; }
+
+  code {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #a8d8ff;
+  }
+
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* -- Metrics table -- */
+  .metrics-table thead th:first-child { width: 60px; }
+
+  .metrics-table td { text-align: right; }
+  .metrics-table td:first-child { text-align: center; font-weight: 600; }
+
+  .best { color: var(--green); font-weight: 700; }
+  .warn { color: var(--orange); }
+
+  .metrics-note {
+    background: var(--bg2);
+    border: 1px solid var(--orange);
+    border-radius: 6px;
+    padding: 14px 18px;
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .metrics-note strong { color: var(--orange); }
+
+  /* -- Image gallery -- */
+  .gallery { margin-top: 24px; display: flex; flex-direction: column; gap: 40px; }
+
+  .gallery-item { }
+
+  .gallery-item h3 {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .img-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  @media (max-width: 640px) {
+    .img-pair { grid-template-columns: 1fr; }
+  }
+
+  .img-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .img-box img {
+    width: 100%;
+    display: block;
+    max-width: 100%;
+  }
+
+  .img-caption {
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+
+  .img-caption strong { color: var(--text); }
+
+  /* -- Legend -- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 20px 0 32px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 18px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .swatch {
+    width: 16px; height: 16px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  /* -- Counts bar -- */
+  .count-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .count-badge {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .count-total   { background: #1e2535; color: #a8b4d4; border: 1px solid var(--border); }
+  .count-safe    { background: #0f2518; color: var(--green);  border: 1px solid #1e4a2e; }
+  .count-impact  { background: #2d0f0f; color: var(--red-light); border: 1px solid #4a1e1e; }
+
+  /* -- Code block -- */
+  .code-block {
+    background: #0a0d14;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px 20px;
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 13px;
+    color: #c9d1e0;
+    overflow-x: auto;
+    margin: 16px 0;
+    line-height: 1.7;
+  }
+
+  .code-block .comment { color: #556070; }
+  .code-block .cmd     { color: #7ec8e3; }
+  .code-block .flag    { color: #c9a66b; }
+
+  /* -- Limitations -- */
+  .limit-list {
+    list-style: none;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .limit-list li {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--orange);
+    border-radius: 0 6px 6px 0;
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .limit-list li strong { color: var(--text); }
+
+  .ethical-note {
+    background: #0d1a0d;
+    border: 1px solid var(--green);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .ethical-note strong { color: var(--green); }
+
+  /* -- Footer -- */
+  footer {
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 24px 0;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  footer a { color: var(--blue); }
+</style>
+</head>
+<body>
+
+<!-- ===========================================
+     CABECALHO
+=========================================== -->
+<header>
+  <div class="container">
+    <span class="tag">Kartado Challenge</span>
+    <h1>Brumadinho <span>Deteccao de Edificacoes</span></h1>
+    <p style="color:#9aa0b8; max-width:680px; margin:0;">
+      Analise de imagens de satelite da zona de impacto do rompimento da barragem de janeiro de 2019 --
+      deteccao de edificacoes, classificacao geoespacial e saidas anotadas para as 6 cenas.
+    </p>
+    <div class="header-meta">
+      <div class="meta-item"><div class="meta-dot"></div><strong>25 jan. 2019</strong>&nbsp;-- Brumadinho, MG, Brasil</div>
+      <div class="meta-item"><div class="meta-dot"></div><strong>270 mortes</strong></div>
+      <div class="meta-item"><div class="meta-dot"></div><strong>6 PNGs pre-desastre</strong>, sem ground truth</div>
+      <div class="meta-item"><div class="meta-dot"></div>
+        <a href="https://github.com/pedrogasparotti/kartado-challenge" target="_blank" style="color:#5ba3d4;">
+          github.com/pedrogasparotti/kartado-challenge
+        </a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Navegacao fixa -->
+<nav>
+  <div class="container">
+    <a href="#problema">Problema</a>
+    <a href="#arquitetura">Arquitetura</a>
+    <a href="#entregaveis">Entregaveis</a>
+    <a href="#galeria">Galeria</a>
+    <a href="#reproducao">Reproducao</a>
+    <a href="#limitacoes">Limitacoes</a>
+  </div>
+</nav>
+
+<!-- ===========================================
+     S1 -- ENTENDIMENTO DO PROBLEMA
+=========================================== -->
+<section id="problema">
+  <div class="container">
+    <div class="section-label">Secao 1</div>
+    <h2>Entendimento do Problema</h2>
+    <p>
+      Em <strong>25 de janeiro de 2019</strong>, a barragem de rejeitos da mina de ferro Corrego do Feijao,
+      operada pela Vale S.A., rompeu nas proximidades de Brumadinho, Minas Gerais.
+      A lama percorreu aproximadamente 12 km pelo vale do <strong>Rio Paraopeba</strong>,
+      matando 270 pessoas e destruindo infraestrutura e habitacoes em seu caminho.
+    </p>
+    <p>
+      O desafio fornece <strong>6 PNGs pre-desastre</strong> cobrindo o corredor de impacto.
+      Nenhuma das imagens possui georreferenciamento embutido (sem metadados GeoTIFF, sem CRS).
+      Um arquivo KML define o limite historico da lama como um poligono -- e a unica
+      referencia espacial disponivel. A tarefa: detectar edificacoes em cada imagem e classifica-las
+      como <em>dentro</em> ou <em>fora</em> da zona de impacto.
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <h3>6 PNGs Pre-Desastre</h3>
+        <p>Sem mascaras de ground truth. Sem georreferenciamento embutido. Recortes brutos de satelite em diferentes niveis de zoom cobrindo o vale do Paraopeba.</p>
+      </div>
+      <div class="card">
+        <h3>Desafio de Georreferenciamento</h3>
+        <p>As imagens precisam ser alinhadas espacialmente ao poligono KML usando apenas pistas visuais -- pixels vermelhos de borda casados com coordenadas KML via estimativa afim.</p>
+      </div>
+      <div class="card">
+        <h3>Sem Rotulos de Edificacoes</h3>
+        <p>Supervisao fraca via Microsoft Building Footprints (ML do Bing Maps, cobertura global) utilizada como ground truth aproximado. Rotulos formais sao indisponiveis.</p>
+      </div>
+      <div class="card">
+        <h3>Analise Retrospectiva</h3>
+        <p>Estudo pos-desastre da exposicao pre-desastre -- identificando quais estruturas estavam dentro do limite do eventual alagamento antes do rompimento.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===========================================
+     S2 -- ARQUITETURA
+=========================================== -->
+<section id="arquitetura">
+  <div class="container">
+    <div class="section-label">Secao 2</div>
+    <h2>Arquitetura e Abordagem</h2>
+
+    <div class="pipeline">
+      <div class="pipeline-stage">
+        <div class="stage-badge bronze">Bronze</div>
+        <h4>Ingestao</h4>
+        <p>Copia PNGs + KML, valida arquivos via MD5, parseia o KML em poligono fechado</p>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-badge silver">Catalogo</div>
+        <h4>Footprints + Filtragem</h4>
+        <p>Baixa MS Building Footprints (quadkey Z9 211022203), filtra para a bbox do KML e confianca &gt;= 0,90</p>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-badge infer">Projecao</div>
+        <h4>Projecao + Classificacao + Anotacao</h4>
+        <p>Afim pixel/geo a partir dos pixels vermelhos, projecao geo-&gt;pixel de cada footprint, teste centroide/sobreposicao, PNG anotado</p>
+      </div>
+    </div>
+
+    <div class="decisions">
+      <div class="decision">
+        <h4>MS Building Footprints como catalogo</h4>
+        <p>O dataset global de footprints da Microsoft (Bing ML, release 2020-2021) fornece poligonos de edificacoes para a regiao. Filtramos para a bbox do KML e mantemos apenas poligonos com confianca &gt;= 0,90.</p>
+      </div>
+      <div class="decision">
+        <h4>Estimativa Afim Pixel-para-Geo</h4>
+        <p>Os pixels vermelhos de borda da zona de impacto sao detectados por limiarizacao HSV e depois casados com os cantos do poligono KML via ajuste afim. Isso produz uma transformacao por imagem sem necessidade de medicoes GCP em campo.</p>
+      </div>
+      <div class="decision">
+        <h4>Projecao de catalogo, nao deteccao visual</h4>
+        <p>Os numeros reportados sao quantos poligonos do catalogo MS Building Footprints (filtrados por confianca &gt;= 0,90 e dentro da bbox do KML) caem dentro do poligono vermelho de impacto em cada imagem. Nao executamos um detector visual no momento da inferencia.</p>
+      </div>
+      <div class="decision">
+        <h4>Classificacao na Zona de Impacto</h4>
+        <p>Cada poligono de edificacao projetado e classificado como "na zona de impacto" se seu centroide cair dentro do poligono vermelho OU se mais ou igual a 50% de sua area de pixels sobrepor o poligono de impacto. Isso trata estruturas na borda.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===========================================
+     S3 -- ENTREGAVEIS
+=========================================== -->
+<section id="entregaveis">
+  <div class="container">
+    <div class="section-label">Secao 3</div>
+    <h2>Checklist de Entregaveis</h2>
+    <p>Todos os itens do rubric estao presentes. Os comandos abaixo executam a partir do diretorio <code>brum/</code>.</p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px"></th>
+            <th>Entregavel</th>
+            <th>Como verificar</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="check">&#10003;</td>
+            <td><strong>Repositorio publico no GitHub</strong></td>
+            <td><a href="https://github.com/pedrogasparotti/kartado-challenge" target="_blank">github.com/pedrogasparotti/kartado-challenge</a></td>
+          </tr>
+          <tr>
+            <td class="check">&#10003;</td>
+            <td><strong>Codigo modular em <code>src/</code></strong></td>
+            <td><code>src/data/</code> | <code>src/inference/</code> | <code>src/viz/</code></td>
+          </tr>
+          <tr>
+            <td class="check">&#10003;</td>
+            <td><strong>Pipeline medalhao Bronze -&gt; Silver -&gt; Gold</strong></td>
+            <td><code>python scripts/run_pipeline.py</code> (ingestao -&gt; footprints -&gt; projecao + anotacao)</td>
+          </tr>
+          <tr>
+            <td class="check">&#10003;</td>
+            <td><strong>Ponto de entrada de inferencia com flags CLI</strong></td>
+            <td><code>python scripts/run_footprint_inference.py --images data/bronze/img0.png</code></td>
+          </tr>
+          <tr>
+            <td class="check">&#10003;</td>
+            <td><strong>Testes unitarios</strong></td>
+            <td><code>pytest tests/</code> -- testes de georeferenciamento e classificacao de edificacoes</td>
+          </tr>
+          <tr>
+            <td class="check">&#10003;</td>
+            <td><strong>Imagens de saida anotadas (todas as 6)</strong></td>
+            <td><code>data/gold/annotated/img{0..5}_annotated.png</code> -- ver galeria abaixo</td>
+          </tr>
+          <tr>
+            <td class="check">&#10003;</td>
+            <td><strong>Contagem de edificacoes por imagem</strong></td>
+            <td>Total / dentro da zona de impacto / fora -- impresso por <code>run_pipeline.py</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===========================================
+     S5 -- GALERIA DE RESULTADOS
+=========================================== -->
+<section id="galeria">
+  <div class="container">
+    <div class="section-label">Secao 5</div>
+    <h2>Resultados: Pares Bruto -&gt; Anotado</h2>
+    <p>Cada par mostra o recorte original de satelite (esquerda) ao lado da saida anotada (direita).</p>
+
+    <div class="legend">
+      <div class="legend-item">
+        <div class="swatch" style="background:#27ae60;"></div>
+        <span>Contorno verde -- edificacao fora da zona de impacto (segura)</span>
+      </div>
+      <div class="legend-item">
+        <div class="swatch" style="background:#c0392b;"></div>
+        <span>Contorno vermelho -- edificacao dentro da zona de impacto</span>
+      </div>
+      <div class="legend-item">
+        <div class="swatch" style="background:#e67e22;"></div>
+        <span>Borda laranja -- poligono KML da zona de impacto</span>
+      </div>
+    </div>
+
+    <div class="gallery">
+
+      <!-- img0 -->
+      <div class="gallery-item">
+        <h3>Imagem 0</h3>
+        <div class="count-row">
+          <span class="count-badge count-total">Total: 2352 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 1500</span>
+          <span class="count-badge count-impact">Zona de impacto: 852</span>
+        </div>
+        <div class="img-pair">
+          <div class="img-box">
+            <img src="data/raw/img0.png" alt="img0 satelite bruto">
+            <div class="img-caption"><strong>Bruto</strong> -- img0.png</div>
+          </div>
+          <div class="img-box">
+            <img src="data/gold/annotated/img0_annotated.png" alt="img0 anotado">
+            <div class="img-caption"><strong>Anotado</strong> -- img0_annotated.png</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- img1 -->
+      <div class="gallery-item">
+        <h3>Imagem 1</h3>
+        <div class="count-row">
+          <span class="count-badge count-total">Total: 2302 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 793</span>
+          <span class="count-badge count-impact">Zona de impacto: 1509</span>
+        </div>
+        <div class="img-pair">
+          <div class="img-box">
+            <img src="data/raw/img1.png" alt="img1 satelite bruto">
+            <div class="img-caption"><strong>Bruto</strong> -- img1.png</div>
+          </div>
+          <div class="img-box">
+            <img src="data/gold/annotated/img1_annotated.png" alt="img1 anotado">
+            <div class="img-caption"><strong>Anotado</strong> -- img1_annotated.png</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- img2 -->
+      <div class="gallery-item">
+        <h3>Imagem 2</h3>
+        <div class="count-row">
+          <span class="count-badge count-total">Total: 2327 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 484</span>
+          <span class="count-badge count-impact">Zona de impacto: 1843</span>
+        </div>
+        <div class="img-pair">
+          <div class="img-box">
+            <img src="data/raw/img2.png" alt="img2 satelite bruto">
+            <div class="img-caption"><strong>Bruto</strong> -- img2.png</div>
+          </div>
+          <div class="img-box">
+            <img src="data/gold/annotated/img2_annotated.png" alt="img2 anotado">
+            <div class="img-caption"><strong>Anotado</strong> -- img2_annotated.png</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- img3 -->
+      <div class="gallery-item">
+        <h3>Imagem 3</h3>
+        <div class="count-row">
+          <span class="count-badge count-total">Total: 2353 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 713</span>
+          <span class="count-badge count-impact">Zona de impacto: 1640</span>
+        </div>
+        <div class="img-pair">
+          <div class="img-box">
+            <img src="data/raw/img3.png" alt="img3 satelite bruto">
+            <div class="img-caption"><strong>Bruto</strong> -- img3.png</div>
+          </div>
+          <div class="img-box">
+            <img src="data/gold/annotated/img3_annotated.png" alt="img3 anotado">
+            <div class="img-caption"><strong>Anotado</strong> -- img3_annotated.png</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- img4 -->
+      <div class="gallery-item">
+        <h3>Imagem 4</h3>
+        <div class="count-row">
+          <span class="count-badge count-total">Total: 2353 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 1610</span>
+          <span class="count-badge count-impact">Zona de impacto: 743</span>
+        </div>
+        <div class="img-pair">
+          <div class="img-box">
+            <img src="data/raw/img4.png" alt="img4 satelite bruto">
+            <div class="img-caption"><strong>Bruto</strong> -- img4.png</div>
+          </div>
+          <div class="img-box">
+            <img src="data/gold/annotated/img4_annotated.png" alt="img4 anotado">
+            <div class="img-caption"><strong>Anotado</strong> -- img4_annotated.png</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- img5 -->
+      <div class="gallery-item">
+        <h3>Imagem 5</h3>
+        <div class="count-row">
+          <span class="count-badge count-total">Total: 2335 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 465</span>
+          <span class="count-badge count-impact">Zona de impacto: 1870</span>
+        </div>
+        <div class="img-pair">
+          <div class="img-box">
+            <img src="data/raw/img5.png" alt="img5 satelite bruto">
+            <div class="img-caption"><strong>Bruto</strong> -- img5.png</div>
+          </div>
+          <div class="img-box">
+            <img src="data/gold/annotated/img5_annotated.png" alt="img5 anotado">
+            <div class="img-caption"><strong>Anotado</strong> -- img5_annotated.png</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /gallery -->
+  </div>
+</section>
+
+<!-- ===========================================
+     S6 -- GUIA DE REPRODUCAO
+=========================================== -->
+<section id="reproducao">
+  <div class="container">
+    <div class="section-label">Secao 6</div>
+    <h2>Guia de Reproducao</h2>
+    <p>Todos os comandos executam a partir do diretorio <code>brum/</code> dentro do repositorio clonado.</p>
+
+    <div class="code-block">
+<span class="comment"># 1. Clonar e entrar no projeto</span>
+<span class="cmd">git clone</span> https://github.com/pedrogasparotti/kartado-challenge.git
+<span class="cmd">cd</span> kartado-challenge/brum
+
+<span class="comment"># 2. Instalar dependencias (Python 3.9+)</span>
+<span class="cmd">pip install</span> <span class="flag">-r</span> requirements.txt
+
+<span class="comment"># 3. Pipeline completo -- ingestao -&gt; footprints -&gt; projecao + anotacao das 6 imagens</span>
+<span class="cmd">python scripts/run_pipeline.py</span>
+
+<span class="comment"># 4. Executar testes unitarios</span>
+<span class="cmd">pytest tests/</span> <span class="flag">-v</span>
+    </div>
+
+    <p style="margin-top:8px;">
+      As saidas anotadas de todas as 6 imagens ja estao presentes em
+      <code>data/gold/annotated/</code> a partir do ultimo run do pipeline.
+    </p>
+  </div>
+</section>
+
+<!-- ===========================================
+     S7 -- LIMITACOES
+=========================================== -->
+<section id="limitacoes">
+  <div class="container">
+    <div class="section-label">Secao 7</div>
+    <h2>Limitacoes e Nota Etica</h2>
+
+    <ul class="limit-list">
+      <li>
+        <strong>Catalogo, nao deteccao visual.</strong>
+        Os numeros sao quantos footprints da Microsoft (capturados em 2020-2021 a partir de imagens Bing)
+        caem dentro do poligono de impacto. Nao podemos detectar edificacoes ausentes do catalogo,
+        nem distinguir as soterradas pela lama das que nunca existiram.
+      </li>
+      <li>
+        <strong>Deriva da aproximacao afim.</strong>
+        A transformacao pixel-para-geo e linear, ajustada aos pixels vermelhos visiveis em cada imagem;
+        pode acumular distorcao perto das bordas, deslocando a projecao para edificacoes proximas
+        ao limite da zona.
+      </li>
+      <li>
+        <strong>Cobertura incompleta para zona rural.</strong>
+        O dataset Microsoft Global ML Building Footprints (release 2020-2021) tem cobertura desigual em zonas
+        rurais brasileiras; habitacoes informais e estruturas pequenas sao sub-representadas.
+      </li>
+      <li>
+        <strong>Limite de impacto convexo.</strong>
+        <code>close_pixel_polygon()</code> usa um inv. convexo dos pixels vermelhos; o limite real da lama
+        e nao-convexo (entrancias do vale do rio), o que pode classificar erroneamente edificacoes
+        em secoes re-entrantes.
+      </li>
+    </ul>
+
+    <div class="ethical-note">
+      <strong>Nota etica:</strong>
+      Este e um estudo tecnico retrospectivo sobre imagens de satelite pre-desastre.
+      Todos os dados provem de fontes publicamente disponiveis.
+      O modelo identifica a exposicao estrutural a um limite historico de desastre --
+      nao e uma ferramenta de vigilancia em tempo real, nao identifica individuos
+      e nao deve ser usado para determinacoes de deslocamento, seguro ou questoes legais
+      sem validacao independente por profissionais geoespaciais qualificados.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    Kartado Challenge -- Brumadinho Deteccao de Edificacoes &nbsp;|&nbsp;
+    <a href="https://github.com/pedrogasparotti/kartado-challenge" target="_blank">GitHub</a>
+  </div>
+</footer>
+
+</body>
+</html>

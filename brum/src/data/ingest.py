@@ -1,15 +1,12 @@
-"""Bronze layer: raw data ingestion, KML parsing, Delta metadata logging."""
+"""Bronze layer: raw data ingestion and KML parsing."""
 
 from __future__ import annotations
 
 import hashlib
-import os
 import shutil
-from datetime import datetime, timezone
 from pathlib import Path
 
 import geopandas as gpd
-import numpy as np
 from lxml import etree
 from PIL import Image
 from shapely.geometry import LineString, Polygon
@@ -168,118 +165,3 @@ def parse_kml(kml_path: str | Path) -> gpd.GeoDataFrame:
     ]
 
     return gpd.GeoDataFrame(records, crs="EPSG:4326")
-
-
-# ---------------------------------------------------------------------------
-# Spark session
-# ---------------------------------------------------------------------------
-
-
-def build_spark_session(cfg: dict):
-    """Build a Delta-enabled SparkSession from config.
-
-    Uses configure_spark_with_delta_pip for automatic Delta JAR management.
-    """
-    import os
-
-    from delta import configure_spark_with_delta_pip
-    from pyspark.sql import SparkSession
-
-    # Set JAVA_HOME if not already set
-    if not os.environ.get("JAVA_HOME"):
-        # Try common locations
-        for candidate in [
-            "/usr/lib/jvm/java-11-openjdk-amd64",
-            "/usr/lib/jvm/java-11-openjdk",
-            "/Library/Java/JavaVirtualMachines/temurin-11.jdk/Contents/Home",
-            "/Library/Java/JavaVirtualMachines/openjdk-11.jdk/Contents/Home",
-        ]:
-            if Path(candidate).exists():
-                os.environ["JAVA_HOME"] = candidate
-                break
-
-    spark_cfg = cfg.get("spark", {})
-    builder = (
-        SparkSession.builder.appName(
-            spark_cfg.get("app_name", "BrumadinhoBuildingPipeline")
-        )
-        .master(spark_cfg.get("master", "local[*]"))
-        .config("spark.executor.memory", spark_cfg.get("executor_memory", "4g"))
-        .config("spark.driver.memory", spark_cfg.get("driver_memory", "4g"))
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .config(
-            "spark.sql.catalog.spark_catalog",
-            "org.apache.spark.sql.delta.catalog.DeltaCatalog",
-        )
-    )
-    spark = configure_spark_with_delta_pip(builder).getOrCreate()
-    spark.sparkContext.setLogLevel("WARN")
-    return spark
-
-
-# ---------------------------------------------------------------------------
-# Bronze Delta metadata
-# ---------------------------------------------------------------------------
-
-
-def log_bronze_metadata(
-    records: list[dict],
-    bronze_dir: str | Path,
-    spark,
-) -> None:
-    """Write bronze metadata records to a Delta table.
-
-    Table location: {bronze_dir}/delta/bronze_metadata
-    Schema:
-        tile_id STRING, source_path STRING, bronze_path STRING,
-        checksum STRING, file_type STRING, image_width INT,
-        image_height INT, bands INT, file_size_bytes LONG,
-        ingested_at TIMESTAMP
-    """
-    from pyspark.sql import Row
-    from pyspark.sql import functions as F
-    from pyspark.sql.types import (
-        IntegerType,
-        LongType,
-        StringType,
-        StructField,
-        StructType,
-        TimestampType,
-    )
-
-    schema = StructType(
-        [
-            StructField("tile_id", StringType(), False),
-            StructField("source_path", StringType(), True),
-            StructField("bronze_path", StringType(), True),
-            StructField("checksum", StringType(), True),
-            StructField("file_type", StringType(), True),
-            StructField("image_width", IntegerType(), True),
-            StructField("image_height", IntegerType(), True),
-            StructField("bands", IntegerType(), True),
-            StructField("file_size_bytes", LongType(), True),
-            StructField("ingested_at", TimestampType(), True),
-        ]
-    )
-
-    now = datetime.now(tz=timezone.utc)
-    rows = [
-        Row(
-            tile_id=r["tile_id"],
-            source_path=r["source_path"],
-            bronze_path=r["bronze_path"],
-            checksum=r["checksum"],
-            file_type=r["file_type"],
-            image_width=int(r["image_width"]),
-            image_height=int(r["image_height"]),
-            bands=int(r["bands"]),
-            file_size_bytes=int(r["file_size_bytes"]),
-            ingested_at=now,
-        )
-        for r in records
-    ]
-
-    df = spark.createDataFrame(rows, schema=schema)
-    table_path = str(Path(bronze_dir).resolve() / "delta" / "bronze_metadata")
-    df.write.format("delta").mode("overwrite").save(table_path)
-    print(f"[ingest] Bronze metadata written to {table_path} ({len(records)} records)")

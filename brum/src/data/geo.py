@@ -268,7 +268,8 @@ def load_footprints_geojsonl(path: Path) -> gpd.GeoDataFrame:
         return gpd.GeoDataFrame({"geometry": []}, crs="EPSG:4326")
 
     geometries = [shape(f["geometry"]) for f in features]
-    return gpd.GeoDataFrame({"geometry": geometries}, crs="EPSG:4326")
+    confidences = [f["properties"].get("confidence", 1.0) for f in features]
+    return gpd.GeoDataFrame({"geometry": geometries, "confidence": confidences}, crs="EPSG:4326")
 
 
 def get_footprints_for_bbox(

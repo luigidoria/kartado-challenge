@@ -108,6 +108,16 @@ def draw_building_overlays(
     # Blend overlay with base
     annotated = cv2.addWeighted(base, 1 - alpha, overlay, alpha, 0)
 
+    # Draw centroid circles for visibility (buildings are sub-pixel at this scale)
+    for poly, color in (
+        [(p, safe_color) for p in safe_polygons]
+        + [(p, impact_color) for p in impact_polygons]
+    ):
+        if poly.is_empty:
+            continue
+        cx, cy = int(poly.centroid.x), int(poly.centroid.y)
+        cv2.circle(annotated, (cx, cy), radius=5, color=color[::-1], thickness=-1)
+
     # Draw impact zone boundary (orange polyline)
     if impact_zone_polygon is not None and not impact_zone_polygon.is_empty:
         boundary_pts = np.array(
@@ -119,7 +129,7 @@ def draw_building_overlays(
             [boundary_pts],
             isClosed=True,
             color=(0, 165, 255),  # BGR orange
-            thickness=2,
+            thickness=3,
         )
 
     return annotated

@@ -1,16 +1,19 @@
 """
-run_pipeline.py — Brumadinho building detection pipeline (no Spark/Delta).
+run_pipeline.py — Brumadinho footprint-projection pipeline.
 
-Usage:
-    python scripts/run_pipeline.py [--skip-train] [--epochs N]
+Runs the full deterministic flow:
+    Stage 1 — Ingest (Bronze): copy raw PNGs + KML, compute MD5s.
+    Stage 2 — Fetch footprints (only if cache file is missing).
+    Stage 3 — Inference: project MS Building Footprints into pixel space,
+              classify against the red impact polygon, and write
+              annotated PNGs to data/gold/annotated/.
 
-Working directory must be brum/:
-    cd brum && python scripts/run_pipeline.py
+Usage (from brum/):
+    python scripts/run_pipeline.py
 """
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
 import time
@@ -89,41 +92,28 @@ def stage_ingest(cfg: dict, brum_root: Path) -> tuple[list[dict], object]:
 
 
 # ---------------------------------------------------------------------------
-# Stage 2 — Silver
+# Stage 2 — Fetch MS Building Footprints (cache hit if file present)
 # ---------------------------------------------------------------------------
 
-def stage_silver(
-    cfg: dict,
-    brum_root: Path,
-    bronze_records: list[dict],
-    kml_gdf,
-) -> list[dict]:
-    """Extract red pixels, estimate affines, download MS footprints,
-    rasterize masks, tile into chips."""
-    _banner("STAGE 2 — SILVER")
+def stage_fetch_footprints(cfg: dict, brum_root: Path) -> Path:
+    """Ensure the MS Building Footprints geojsonl cache exists for the AOI bbox.
 
-    import numpy as np
-    from PIL import Image
+    Returns the path to the cached .geojsonl file.
+    """
+    _banner("STAGE 2 — FETCH FOOTPRINTS")
 
-    from src.data.geo import (
-        extract_red_pixels,
-        estimate_pixel_to_geo_affine,
-        get_footprints_for_bbox,
-        rasterize_buildings_to_mask,
-    )
-    from src.data.tiling import tile_all_images
+    from src.data.geo import get_footprints_for_bbox
 
     silver_dir = (brum_root / cfg["paths"]["silver_dir"]).resolve()
     footprints_dir = silver_dir / "footprints"
-    silver_dir.mkdir(parents=True, exist_ok=True)
+    footprint_path = footprints_dir / "211022203.geojsonl"
 
+    if footprint_path.exists():
+        print(f"[footprints] Cache hit: {footprint_path}")
+        return footprint_path
+
+    print(f"[footprints] Cache miss — downloading to {footprints_dir}")
     kml_bbox = cfg["kml_bbox"]
-    red_cfg  = cfg.get("red_threshold", {})
-
-    png_records = [r for r in bronze_records if r["file_type"] == "png"]
-    print(f"[silver] Processing {len(png_records)} PNG images")
-
-    print(f"[silver] Downloading MS Building Footprints …")
     t0 = time.time()
     buildings_gdf = get_footprints_for_bbox(
         lon_min=kml_bbox["lon_min"],
@@ -133,175 +123,33 @@ def stage_silver(
         output_dir=footprints_dir,
         zoom=9,
     )
-    print(f"[silver] MS footprints: {len(buildings_gdf)} polygons  ({time.time() - t0:.1f}s)")
-
-    image_paths: list[Path] = []
-    mask_arrays: list[np.ndarray] = []
-    affines:     list[dict] = []
-
-    for rec in png_records:
-        img_path = Path(rec["bronze_path"])
-        print(f"\n[silver] {img_path.name}")
-
-        with Image.open(img_path) as pil_img:
-            img_array = np.array(pil_img)
-
-        red_pixels = extract_red_pixels(
-            img_array,
-            r_min=red_cfg.get("r_min", 150),
-            g_max=red_cfg.get("g_max", 80),
-            b_max=red_cfg.get("b_max", 80),
-        )
-        print(f"         Red pixels: {len(red_pixels)}")
-
-        if len(red_pixels) >= 2:
-            affine = estimate_pixel_to_geo_affine(red_pixels, kml_bbox)
-        else:
-            h, w = img_array.shape[:2]
-            affine = {
-                "px_x_min": 0, "px_x_max": w - 1,
-                "px_y_min": 0, "px_y_max": h - 1,
-                "lon_min": kml_bbox["lon_min"], "lon_max": kml_bbox["lon_max"],
-                "lat_min": kml_bbox["lat_min"], "lat_max": kml_bbox["lat_max"],
-                "scale_x": (kml_bbox["lon_max"] - kml_bbox["lon_min"]) / max(w - 1, 1),
-                "scale_y": (kml_bbox["lat_min"] - kml_bbox["lat_max"]) / max(h - 1, 1),
-            }
-            print(f"         WARNING: <2 red pixels; using full-image fallback affine")
-
-        mask = rasterize_buildings_to_mask(buildings_gdf, img_array, affine)
-        print(f"         Building px in mask: {int((mask > 0).sum())}")
-
-        image_paths.append(img_path)
-        mask_arrays.append(mask)
-        affines.append(affine)
-
-    print(f"\n[silver] Tiling {len(image_paths)} images …")
-    t0 = time.time()
-    silver_records = tile_all_images(image_paths, mask_arrays, silver_dir, affines, cfg)
-
-    n_train = sum(1 for r in silver_records if r["split"] == "train")
-    n_val   = sum(1 for r in silver_records if r["split"] == "val")
-    n_test  = sum(1 for r in silver_records if r["split"] == "test")
-    print(f"[silver] {len(silver_records)} chips  "
-          f"({n_train} train / {n_val} val / {n_test} test)  ({time.time() - t0:.1f}s)")
-
-    return silver_records
+    print(f"[footprints] Downloaded {len(buildings_gdf)} polygons  "
+          f"({time.time() - t0:.1f}s)  →  {footprint_path}")
+    return footprint_path
 
 
 # ---------------------------------------------------------------------------
-# Stage 3 — Train
-# ---------------------------------------------------------------------------
-
-def stage_train(
-    cfg: dict,
-    brum_root: Path,
-    silver_records: list[dict],
-    epochs_override: int | None = None,
-) -> str:
-    """Full training loop with MLflow local backend. Returns checkpoint path."""
-    _banner("STAGE 3 — TRAIN")
-
-    import mlflow
-    from src.training.train import train
-
-    gold_dir = (brum_root / cfg["paths"]["gold_dir"]).resolve()
-    gold_dir.mkdir(parents=True, exist_ok=True)
-
-    if epochs_override is not None:
-        cfg = dict(cfg)
-        cfg["training"] = dict(cfg.get("training", {}))
-        cfg["training"]["epochs"] = epochs_override
-        print(f"[train] Epochs overridden to {epochs_override}")
-
-    # Resolve MLflow tracking URI to absolute path
-    mlflow_cfg = cfg.get("mlflow", {})
-    tracking_uri = mlflow_cfg.get("tracking_uri", "mlruns")
-    if not Path(tracking_uri).is_absolute():
-        tracking_uri = str((brum_root / tracking_uri).resolve())
-    mlflow.set_tracking_uri(tracking_uri)
-    print(f"[train] MLflow URI       : {tracking_uri}")
-    print(f"[train] Experiment       : {mlflow_cfg.get('experiment_name')}")
-    print(f"[train] Epochs           : {cfg.get('training', {}).get('epochs', 50)}")
-
-    t0 = time.time()
-    best_ckpt = train(cfg, silver_records, output_dir=gold_dir)
-    print(f"[train] Done in {time.time() - t0:.1f}s  →  {best_ckpt}")
-    return best_ckpt
-
-
-# ---------------------------------------------------------------------------
-# Stage 4 — Inference
+# Stage 3 — Inference (footprint projection)
 # ---------------------------------------------------------------------------
 
 def stage_inference(
     cfg: dict,
     brum_root: Path,
-    checkpoint_path: str,
+    footprint_path: Path,
     bronze_records: list[dict],
 ) -> list[dict]:
-    """Predict on all raw PNGs, postprocess, save annotated PNGs."""
-    _banner("STAGE 4 — INFERENCE")
+    """Annotate all raw PNGs by projecting MS Building Footprints into pixel space."""
+    _banner("STAGE 3 — INFERENCE (footprint projection)")
 
-    import numpy as np
-    import torch
-    from PIL import Image
-
-    from src.data.transforms import get_val_transforms
-    from src.inference.predict import predict_full_image, load_model_for_inference
-    from src.inference.postprocess import run_full_postprocess
-    from src.viz.overlay import draw_building_overlays, add_legend, save_annotated_image
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[infer] Device      : {device}")
-    print(f"[infer] Checkpoint  : {checkpoint_path}")
-
-    model     = load_model_for_inference(checkpoint_path, cfg, device)
-    transform = get_val_transforms(cfg.get("chip_size", 512))
+    from scripts.run_footprint_inference import run_footprint_inference
 
     gold_dir      = (brum_root / cfg["paths"]["gold_dir"]).resolve()
     annotated_dir = gold_dir / "annotated"
-    annotated_dir.mkdir(parents=True, exist_ok=True)
 
     png_records = [r for r in bronze_records if r["file_type"] == "png"]
-    results: list[dict] = []
+    image_paths = [Path(rec["bronze_path"]) for rec in png_records]
 
-    for rec in png_records:
-        img_path = Path(rec["bronze_path"])
-        print(f"\n[infer] {img_path.name} …")
-        t0 = time.time()
-
-        with Image.open(img_path) as pil_img:
-            img_array = np.array(pil_img.convert("RGB"))
-
-        prob_map = predict_full_image(img_array, model, transform, device, cfg)
-        print(f"         prob_map max={prob_map.max():.3f}  ({time.time() - t0:.1f}s)")
-
-        post = run_full_postprocess(prob_map, img_array, cfg)
-        print(f"         total={post['all_buildings']}  "
-              f"impact={post['buildings_in_impact_zone']}  "
-              f"safe={post['buildings_safe']}")
-
-        annotated = draw_building_overlays(
-            img_array,
-            safe_polygons=post["safe_polygons"],
-            impact_polygons=post["in_impact_polygons"],
-            impact_zone_polygon=post.get("impact_polygon"),
-            prob_map=prob_map,
-        )
-        annotated = add_legend(annotated, post["buildings_safe"], post["buildings_in_impact_zone"])
-
-        out_path = annotated_dir / f"{img_path.stem}_annotated.png"
-        save_annotated_image(annotated, out_path)
-        print(f"         → {out_path}")
-
-        results.append({
-            "image": img_path.name,
-            "all_buildings": post["all_buildings"],
-            "buildings_in_impact_zone": post["buildings_in_impact_zone"],
-            "buildings_safe": post["buildings_safe"],
-            "annotated_path": str(out_path),
-        })
-
+    results = run_footprint_inference(image_paths, footprint_path, annotated_dir, cfg)
     return results
 
 
@@ -338,82 +186,29 @@ def _print_summary(results: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# CLI
+# Main
 # ---------------------------------------------------------------------------
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Brumadinho building detection — end-to-end pipeline (no Spark)"
-    )
-    parser.add_argument(
-        "--skip-train", action="store_true",
-        help="Skip training; use existing checkpoint from gold_dir/best_model.pth",
-    )
-    parser.add_argument(
-        "--epochs", type=int, default=None, metavar="N",
-        help="Override training epochs (default: value in config.yaml)",
-    )
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = parse_args()
-
     brum_root = _BRUM_ROOT
     cfg_path  = brum_root / "conf" / "config.yaml"
 
-    print("Brumadinho Building Detection Pipeline")
-    print(f"  brum root  : {brum_root}")
-    print(f"  config     : {cfg_path}")
-    print(f"  skip-train : {args.skip_train}")
-    if args.epochs:
-        print(f"  epochs     : {args.epochs}")
+    print("Brumadinho Building Detection Pipeline (footprint projection)")
+    print(f"  brum root : {brum_root}")
+    print(f"  config    : {cfg_path}")
 
     cfg = _load_config(cfg_path)
 
     t_total = time.time()
 
     # Stage 1
-    bronze_records, kml_gdf = stage_ingest(cfg, brum_root)
+    bronze_records, _ = stage_ingest(cfg, brum_root)
 
     # Stage 2
-    silver_records = stage_silver(cfg, brum_root, bronze_records, kml_gdf)
+    footprint_path = stage_fetch_footprints(cfg, brum_root)
 
     # Stage 3
-    gold_dir       = (brum_root / cfg["paths"]["gold_dir"]).resolve()
-    best_ckpt_path = str(gold_dir / "best_model.pth")
-    default_ckpt   = (brum_root / cfg["paths"]["checkpoint_path"]).resolve()
-
-    if args.skip_train:
-        _banner("STAGE 3 — TRAIN (SKIPPED)")
-        if Path(best_ckpt_path).exists():
-            checkpoint_path = best_ckpt_path
-        elif default_ckpt.exists():
-            checkpoint_path = str(default_ckpt)
-        else:
-            logger.error(
-                f"No checkpoint found at {best_ckpt_path} or {default_ckpt}. "
-                "Run without --skip-train first."
-            )
-            sys.exit(1)
-        print(f"[train] Using: {checkpoint_path}")
-    else:
-        if not silver_records:
-            logger.error("No silver chips — cannot train.")
-            sys.exit(1)
-        checkpoint_path = stage_train(cfg, brum_root, silver_records, args.epochs)
-
-        mlflow_cfg = cfg.get("mlflow", {})
-        tracking_uri = mlflow_cfg.get("tracking_uri", "mlruns")
-        if not Path(tracking_uri).is_absolute():
-            tracking_uri = str((brum_root / tracking_uri).resolve())
-        print(f"\n[mlflow] Experiment logged. To view results:")
-        print(f"         mlflow ui --backend-store-uri {tracking_uri}")
-        print(f"         → http://127.0.0.1:5000")
-        print(f"         (or run: python scripts/show_results.py)")
-
-    # Stage 4
-    results = stage_inference(cfg, brum_root, checkpoint_path, bronze_records)
+    results = stage_inference(cfg, brum_root, footprint_path, bronze_records)
 
     _print_summary(results)
     print(f"Pipeline complete in {time.time() - t_total:.1f}s")

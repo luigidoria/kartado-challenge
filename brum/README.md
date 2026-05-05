@@ -2,23 +2,19 @@
 
 ## Context
 
-On January 25, 2019, the Córrego do Feijão iron ore tailings dam (Dam I) operated by Vale S.A. collapsed near Brumadinho, Minas Gerais, Brazil. The mudflow killed 270 people and contaminated the Paraopeba River. This pipeline detects buildings inside the confirmed mudflow impact zone from six pre-disaster satellite PNGs, enabling retrospective damage assessment and informing evacuation planning protocols.
+On January 25, 2019, the Córrego do Feijão iron ore tailings dam (Dam I) operated by Vale S.A. collapsed near Brumadinho, Minas Gerais, Brazil. The mudflow killed 270 people and contaminated the Paraopeba River. This pipeline reports how many buildings from a pre-disaster footprint catalog fall inside the confirmed mudflow impact zone, enabling retrospective exposure assessment.
 
 ## Problem
 
 Given six RGBA satellite PNGs (~2075×750 px each) with an embedded red-pixel impact-zone boundary, and a KML file defining the boundary in geographic coordinates:
 
-1. Detect all buildings visible in the imagery.
-2. Classify each building as **inside** or **outside** the mudflow impact zone.
-3. Produce an annotated image with a building count.
+1. Project a pre-disaster building catalog into each image.
+2. Classify each projected building as **inside** or **outside** the mudflow impact zone.
+3. Produce an annotated image with the per-image counts.
 
 ## Approach
 
-**Weak supervision via Microsoft Building Footprints.** With no labeled building masks for Brumadinho, building footprints from the [Microsoft Global ML Building Footprints](https://github.com/microsoft/GlobalMLBuildingFootprints) dataset are downloaded for the AOI quadkeys and rasterized onto each image chip as training masks. The red boundary pixels serve as the spatial anchor for a per-image linear affine mapping from pixel space to geographic coordinates.
-
-**Tile-and-stitch inference.** Each image is divided into 512×512 chips (stride 384). At inference, chips are predicted independently and stitched using Gaussian-weighted blending to suppress seam artifacts.
-
-**Impact zone classification.** The red pixels in each image are extracted and closed into a convex-hull polygon in pixel space. Buildings are classified as "in impact" if their centroid falls inside this polygon or if their area overlap exceeds 50%.
+**Catalog projection.** The [Microsoft Global ML Building Footprints](https://github.com/microsoft/GlobalMLBuildingFootprints) catalog is downloaded for the AOI quadkey, filtered by confidence ≥ 0.90, and projected into pixel space using a per-image affine derived from the embedded red boundary. Each projected polygon is classified inside/outside the impact zone by centroid containment plus area-overlap fallback. No neural inference at runtime. The numbers reflect catalog coverage, not what was visually detected in the imagery.
 
 ## Architecture
 
@@ -27,119 +23,86 @@ Raw PNGs + KML
      │
      ▼
 ┌────────────────────────────────────────────────────────┐
-│  BRONZE (ingest.py)                                    │
-│  MD5 checksums · Delta metadata table                  │
-│  KML → merged closed polygon                          │
+│  INGEST (ingest.py)                                    │
+│  MD5 checksums · KML → merged closed polygon           │
 └────────────────────────┬───────────────────────────────┘
                          │
                          ▼
 ┌────────────────────────────────────────────────────────┐
-│  SILVER (geo.py · tiling.py · transforms.py)           │
+│  FETCH + FILTER FOOTPRINTS (geo.py)                    │
+│  MS Building Footprints (quadkey 211022203, Z9)        │
+│  Filter to KML bbox · confidence ≥ 0.90                │
+└────────────────────────┬───────────────────────────────┘
+                         │
+                         ▼
+┌────────────────────────────────────────────────────────┐
+│  PROJECT + CLASSIFY + ANNOTATE                         │
+│  (geo.py · postprocess.py · overlay.py)                │
 │  Red pixel extraction → per-image affine               │
-│  MS Building Footprints download (quadkey Z9)          │
-│  Mask rasterization (cv2.fillPoly)                     │
-│  512×512 chips · spatial block split (67/17/16%)       │
-│  Delta metadata table                                  │
-└────────────────────────┬───────────────────────────────┘
-                         │
-                         ▼
-┌────────────────────────────────────────────────────────┐
-│  GOLD (unet.py · train.py · losses.py)                 │
-│  U-Net + EfficientNet-B0 (SMP 0.5.0)                  │
-│  Loss: 0.5×BCEWithLogits + 0.5×Dice                   │
-│  AdamW · CosineAnnealingLR · 50 epochs                │
-│  MLflow autolog · checkpoint · pyfunc registry        │
-└────────────────────────┬───────────────────────────────┘
-                         │
-                         ▼
-┌────────────────────────────────────────────────────────┐
-│  INFERENCE (predict.py · postprocess.py · overlay.py)  │
-│  Tile → predict → Gaussian stitch                     │
-│  Connected components · polygon contours               │
-│  Impact zone classification (centroid + area overlap)  │
-│  Annotated PNG with green/red overlays + legend        │
+│  geo→pixel projection of every footprint polygon       │
+│  Centroid + 50% area-overlap test vs. red polygon      │
+│  Mud-mask filter · annotated PNG with green/red overlays│
 └────────────────────────────────────────────────────────┘
 ```
 
 ## Data Pipeline
 
-| Stage  | Location               | Format        | Key artifacts                         |
-|--------|------------------------|---------------|---------------------------------------|
-| Bronze | `data/bronze/`         | PNG + Delta   | MD5-verified copies, metadata table  |
-| Silver | `data/silver/chips/`   | PNG chips + Delta | 512×512 image/mask pairs, split info |
-| Gold   | `data/gold/`           | .pth + Delta  | Best checkpoint, eval metrics table  |
+| Stage  | Location                          | Format        | Key artifacts                                  |
+|--------|-----------------------------------|---------------|------------------------------------------------|
+| Bronze | `data/bronze/`                    | PNG + KML     | MD5-verified copies, KML polygon               |
+| Silver | `data/silver/footprints/`         | GeoJSONL      | MS Building Footprints catalog (quadkey Z9)    |
+| Gold   | `data/gold/annotated/`            | PNG           | Annotated outputs with per-image building counts|
 
 ## Results
 
-| Metric    | Value (test set) |
-|-----------|-----------------|
-| IoU       | —               |
-| Precision | —               |
-| Recall    | —               |
-| F1        | —               |
+Per-image counts produced by the pipeline (from `last-session.md`):
 
-*Results populated after training on local hardware with downloaded MS Building Footprints. Placeholder values reflect the pipeline being designed for end-to-end execution, not pre-run artifact.*
+| Image | Total | Impact zone | Safe |
+|-------|------:|------------:|-----:|
+| img0  | 2352  | 852         | 1500 |
+| img1  | 2302  | 1509        | 793  |
+| img2  | 2327  | 1843        | 484  |
+| img3  | 2353  | 1640        | 713  |
+| img4  | 2353  | 743         | 1610 |
+| img5  | 2335  | 1870        | 465  |
+
+These numbers are how many catalog polygons project into each image after the confidence filter and the mud-mask filter, and how many of those land inside (or substantially overlap) the red impact polygon. They reflect catalog coverage of the AOI — not visual detection.
 
 ## Limitations
 
-1. **Partial-coverage affine approximation.** The pixel-to-geo affine is a linear fit between the red pixel bounding box and the KML bounding box. For images where red pixels cover only part of the image width (img1: x=[893,2074]; img4: x=[429,1598]), the affine maps only the visible boundary portion — introducing distortion for building footprints projected into those images.
+1. **Catalog, not visual detection.** Counts are how many MS Building Footprints (captured 2020–2021 from Bing imagery) project into the impact polygon. We cannot detect buildings missing from the catalog, nor distinguish ones buried by mud from ones that never existed.
 
-2. **Weak labels may miss informal housing.** Microsoft Building Footprints are derived from aerial/satellite imagery using ML models trained primarily on formal, roofed structures. Informal housing with corrugated tin or earthen roofs common in Minas Gerais rural communities may be systematically underrepresented in training masks, causing the model to undercount such structures.
+2. **Affine approximation drift.** The pixel-to-geo transform is linear, fitted to the visible red pixels in each image; it can accumulate distortion near the edges, displacing the projection for buildings near the boundary of the zone.
 
-3. **ImageNet encoder bias.** The EfficientNet-B0 encoder uses ImageNet-pretrained weights. Features learned for European and North American building styles may not transfer optimally to Brazilian rural and agricultural structures, potentially reducing recall in such regions.
+3. **Incomplete rural coverage.** The Microsoft Global ML Building Footprints dataset (2020–2021 release) has uneven coverage in rural Brazilian areas; informal housing and small structures are underrepresented.
 
-4. **Convex hull impact polygon.** `close_pixel_polygon()` uses a convex hull of the red boundary pixels. The actual mudflow boundary is non-convex (the river valley creates concave sections). Buildings near re-entrant sections of the true boundary may be mis-classified.
+4. **Convex impact boundary.** `close_pixel_polygon()` uses a convex hull of the red pixels; the real mud boundary is non-convex (river-valley re-entrants), which can misclassify buildings in concave sections.
 
 ## Reproduction
 
 ```bash
-# Clone and navigate
-git clone <repo> && cd kartado/challenges/brum
-
-# Install dependencies (~5 min on first run)
 pip install -r requirements.txt
+cd brum
+python scripts/run_pipeline.py
 
-# Ingest raw data
-python -c "
-import yaml, sys
-sys.path.insert(0, '.')
-cfg = yaml.safe_load(open('conf/config.yaml'))
-from src.data.ingest import copy_raw_to_bronze, parse_kml, build_spark_session, log_bronze_metadata
-from pathlib import Path
-records = copy_raw_to_bronze(cfg['paths']['raw_dir'], cfg['paths']['bronze_dir'])
-spark = build_spark_session(cfg)
-log_bronze_metadata([r for r in records if r['file_type'] != 'kml'],
-                    cfg['paths']['bronze_dir'], spark)
-"
-
-# Run inference (requires trained checkpoint)
-python scripts/run_inference.py \
-    --image data/raw/img0.png \
-    --checkpoint data/gold/best_model.pth \
-    --config conf/config.yaml \
-    --output data/gold/annotated_img0.png
-
-# Run tests
+# Run unit tests
 pytest tests/ -v
-
-# Lint
-ruff check src/ scripts/ notebooks/
-black --check src/ scripts/ notebooks/
 ```
 
 Expected output:
 ```
-=== Brumadinho Building Detection ===
-Image: data/raw/img0.png
-Total buildings detected: N
-  Inside impact zone: M  (red)
-  Outside impact zone: N-M  (green)
-Annotated image saved: data/gold/annotated_img0.png
+=== STAGE 3 — INFERENCE (footprint projection) ===
+[footprint] Loading footprints from data/silver/footprints/211022203.geojsonl …
+[footprint] After confidence filter (≥0.9): N
+…
+img0.png  2352   852  1500
+img1.png  2302  1509   793
+…
 ```
 
 ## Ethical Note
 
-This pipeline is designed for retrospective damage assessment and humanitarian planning — not surveillance. Building detection results should be interpreted in conjunction with ground-truth field surveys. Automated counts should never be used as the sole basis for casualty estimates or insurance decisions. All data inputs are pre-disaster (January 2019), and no personal or identifying information is processed.
+This pipeline is designed for retrospective exposure assessment and humanitarian planning — not surveillance. Building counts should be interpreted in conjunction with ground-truth field surveys. Automated counts should never be used as the sole basis for casualty estimates or insurance decisions. All data inputs are pre-disaster (January 2019), and no personal or identifying information is processed.
 
 ## License
 
