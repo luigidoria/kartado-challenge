@@ -19,3 +19,7 @@ kml_bbox:
 
 # Minimum confidence threshold for MS Building Footprints
 footprint_min_confidence: 0.90
+
+# YOLO-based inference pipeline
+yolo_model_path: "data/raw/geo_builds.pt"
+yolo_confidence_threshold: 0.25

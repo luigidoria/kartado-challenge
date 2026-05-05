@@ -1,12 +1,12 @@
 """
-run_pipeline.py — Brumadinho footprint-projection pipeline.
+run_pipeline.py — Brumadinho end-to-end building detection pipeline.
 
-Runs the full deterministic flow:
+Runs the full flow:
     Stage 1 — Ingest (Bronze): copy raw PNGs + KML, compute MD5s.
-    Stage 2 — Fetch footprints (only if cache file is missing).
-    Stage 3 — Inference: project MS Building Footprints into pixel space,
-              classify against the red impact polygon, and write
-              annotated PNGs to data/gold/annotated/.
+    Stage 2 — Load YOLO model (path from config.yaml: yolo_model_path).
+    Stage 3 — Inference: YOLO segmentation + flood-fill impact zone mask,
+              classify each detection as inside/outside, write annotated
+              PNGs to data/gold/annotated/.
 
 Usage (from brum/):
     python scripts/run_pipeline.py
@@ -15,6 +15,7 @@ Usage (from brum/):
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import time
 from pathlib import Path
@@ -92,64 +93,52 @@ def stage_ingest(cfg: dict, brum_root: Path) -> tuple[list[dict], object]:
 
 
 # ---------------------------------------------------------------------------
-# Stage 2 — Fetch MS Building Footprints (cache hit if file present)
+# Stage 2 — Load YOLO model
 # ---------------------------------------------------------------------------
 
-def stage_fetch_footprints(cfg: dict, brum_root: Path) -> Path:
-    """Ensure the MS Building Footprints geojsonl cache exists for the AOI bbox.
+def stage_load_model(cfg: dict, brum_root: Path):
+    """Load the YOLO model from the path defined in config."""
+    _banner("STAGE 2 — LOAD YOLO MODEL")
 
-    Returns the path to the cached .geojsonl file.
-    """
-    _banner("STAGE 2 — FETCH FOOTPRINTS")
+    from ultralytics import YOLO
 
-    from src.data.geo import get_footprints_for_bbox
+    model_path = (brum_root / cfg.get("yolo_model_path", "data/raw/best.pt")).resolve()
+    if not model_path.exists():
+        raise FileNotFoundError(f"YOLO model not found: {model_path}")
 
-    silver_dir = (brum_root / cfg["paths"]["silver_dir"]).resolve()
-    footprints_dir = silver_dir / "footprints"
-    footprint_path = footprints_dir / "211022203.geojsonl"
-
-    if footprint_path.exists():
-        print(f"[footprints] Cache hit: {footprint_path}")
-        return footprint_path
-
-    print(f"[footprints] Cache miss — downloading to {footprints_dir}")
-    kml_bbox = cfg["kml_bbox"]
+    print(f"[model] Loading {model_path}")
     t0 = time.time()
-    buildings_gdf = get_footprints_for_bbox(
-        lon_min=kml_bbox["lon_min"],
-        lat_min=kml_bbox["lat_min"],
-        lon_max=kml_bbox["lon_max"],
-        lat_max=kml_bbox["lat_max"],
-        output_dir=footprints_dir,
-        zoom=9,
-    )
-    print(f"[footprints] Downloaded {len(buildings_gdf)} polygons  "
-          f"({time.time() - t0:.1f}s)  →  {footprint_path}")
-    return footprint_path
+    model = YOLO(str(model_path))
+    print(f"[model] Loaded in {time.time() - t0:.1f}s")
+    return model
 
 
 # ---------------------------------------------------------------------------
-# Stage 3 — Inference (footprint projection)
+# Stage 3 — Inference (YOLO + raster zone mask)
 # ---------------------------------------------------------------------------
 
 def stage_inference(
     cfg: dict,
     brum_root: Path,
-    footprint_path: Path,
+    model,
     bronze_records: list[dict],
 ) -> list[dict]:
-    """Annotate all raw PNGs by projecting MS Building Footprints into pixel space."""
-    _banner("STAGE 3 — INFERENCE (footprint projection)")
+    """Detect buildings in all bronze PNGs using YOLO + flood-fill zone mask."""
+    _banner("STAGE 3 — INFERENCE (YOLO)")
 
-    from scripts.run_footprint_inference import run_footprint_inference
+    from scripts.pipeline_IA import run_pipeline as yolo_run_pipeline
 
     gold_dir      = (brum_root / cfg["paths"]["gold_dir"]).resolve()
     annotated_dir = gold_dir / "annotated"
+    conf          = cfg.get("yolo_confidence_threshold", 0.10)
 
     png_records = [r for r in bronze_records if r["file_type"] == "png"]
     image_paths = [Path(rec["bronze_path"]) for rec in png_records]
 
-    results = run_footprint_inference(image_paths, footprint_path, annotated_dir, cfg)
+    results = [
+        yolo_run_pipeline(img_path, model, annotated_dir, conf)
+        for img_path in image_paths
+    ]
     return results
 
 
@@ -186,6 +175,52 @@ def _print_summary(results: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Update presentation.html counts
+# ---------------------------------------------------------------------------
+
+def _update_presentation(results: list[dict], brum_root: Path) -> None:
+    """Patch the count badges in presentation.html with the latest pipeline results.
+
+    Finds each gallery-item block by image stem (img0, img1, …) and replaces
+    the three count badges (total, safe, impact) in-place.
+    """
+    html_path = brum_root / "presentation.html"
+    if not html_path.exists():
+        logger.warning("[presentation] presentation.html not found — skipping update")
+        return
+
+    html = html_path.read_text(encoding="utf-8")
+
+    for r in results:
+        stem = Path(r["image"]).stem          # "img0"
+        total   = r["all_buildings"]
+        impact  = r["buildings_in_impact_zone"]
+        safe    = r["buildings_safe"]
+
+        # Match the three badges inside the gallery-item for this image.
+        # The comment <!-- imgN --> anchors the replacement to the right block.
+        pattern = (
+            r"(<!--\s*" + re.escape(stem) + r"\s*-->.*?"
+            r'<span class="count-badge count-total">).*?(</span>.*?'
+            r'<span class="count-badge count-safe">).*?(</span>.*?'
+            r'<span class="count-badge count-impact">).*?(</span>)'
+        )
+        replacement = (
+            rf'\g<1>Total: {total} edificacoes\g<2>'
+            rf'Seguras: {safe}\g<3>'
+            rf'Zona de impacto: {impact}\g<4>'
+        )
+        html, n = re.subn(pattern, replacement, html, count=1, flags=re.DOTALL)
+        if n:
+            print(f"[presentation] {stem}: Total={total}  Impact={impact}  Safe={safe}")
+        else:
+            logger.warning("[presentation] Could not find gallery block for %s", stem)
+
+    html_path.write_text(html, encoding="utf-8")
+    print(f"[presentation] presentation.html atualizado -> {html_path}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -193,7 +228,7 @@ def main() -> None:
     brum_root = _BRUM_ROOT
     cfg_path  = brum_root / "conf" / "config.yaml"
 
-    print("Brumadinho Building Detection Pipeline (footprint projection)")
+    print("Brumadinho Building Detection Pipeline (YOLO)")
     print(f"  brum root : {brum_root}")
     print(f"  config    : {cfg_path}")
 
@@ -205,12 +240,13 @@ def main() -> None:
     bronze_records, _ = stage_ingest(cfg, brum_root)
 
     # Stage 2
-    footprint_path = stage_fetch_footprints(cfg, brum_root)
+    model = stage_load_model(cfg, brum_root)
 
     # Stage 3
-    results = stage_inference(cfg, brum_root, footprint_path, bronze_records)
+    results = stage_inference(cfg, brum_root, model, bronze_records)
 
     _print_summary(results)
+    _update_presentation(results, brum_root)
     print(f"Pipeline complete in {time.time() - t_total:.1f}s")
 
 

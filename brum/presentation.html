@@ -565,17 +565,22 @@
       <div class="pipeline-stage">
         <div class="stage-badge bronze">Bronze</div>
         <h4>Ingestao</h4>
-        <p>Copia PNGs + KML, valida arquivos via MD5, parseia o KML em poligono fechado</p>
+        <p>Copia PNGs + KML, valida arquivos via MD5, registra metadados</p>
       </div>
       <div class="pipeline-stage">
-        <div class="stage-badge silver">Catalogo</div>
-        <h4>Footprints + Filtragem</h4>
-        <p>Baixa MS Building Footprints (quadkey Z9 211022203), filtra para a bbox do KML e confianca &gt;= 0,90</p>
+        <div class="stage-badge silver">YOLO</div>
+        <h4>Inferencia YOLO</h4>
+        <p>Segmentacao de instancias com YOLOv8 treinado em dados de edificacoes -- retorna poligonos de mascara por edificacao detectada</p>
       </div>
       <div class="pipeline-stage">
-        <div class="stage-badge infer">Projecao</div>
-        <h4>Projecao + Classificacao + Anotacao</h4>
-        <p>Afim pixel/geo a partir dos pixels vermelhos, projecao geo-&gt;pixel de cada footprint, teste centroide/sobreposicao, PNG anotado</p>
+        <div class="stage-badge infer">Mascara</div>
+        <h4>Zona de Impacto (Flood Fill)</h4>
+        <p>Detecta pixels vermelhos, fecha o poligono por flood fill raster, classifica cada edificacao YOLO como dentro/fora</p>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-badge gold">Gold</div>
+        <h4>Anotacao + Contagem</h4>
+        <p>Tinta semitransparente na zona, contorno verde/vermelho por edificacao, PNG anotado salvo em data/gold/annotated/</p>
       </div>
     </div>
 
@@ -594,7 +599,11 @@
       </div>
       <div class="decision">
         <h4>Classificacao na Zona de Impacto</h4>
-        <p>Cada poligono de edificacao projetado e classificado como "na zona de impacto" se seu centroide cair dentro do poligono vermelho OU se mais ou igual a 50% de sua area de pixels sobrepor o poligono de impacto. Isso trata estruturas na borda.</p>
+        <p>A linha vermelha presente nas imagens e processada para gerar uma mascara preenchida da zona de impacto. Cada edificacao detectada e classificada como "na zona de impacto" se sua mascara sobrepor a mascara da zona, e como segura caso contrario.</p>
+      </div>
+      <div class="decision">
+        <h4>Treinamento do Modelo YOLO</h4>
+        <p>Fine-tuning do YOLOv26n-seg pre-treinado no COCO com 4 imagens de satelite de Brumadinho para treino e 2 para validacao. O modelo exportado (<code>geo_builds.pt</code>) retorna mascaras de poligono por edificacao detectada.</p>
       </div>
     </div>
   </div>
@@ -690,9 +699,9 @@
       <div class="gallery-item">
         <h3>Imagem 0</h3>
         <div class="count-row">
-          <span class="count-badge count-total">Total: 2352 edificacoes</span>
-          <span class="count-badge count-safe">Seguras: 1500</span>
-          <span class="count-badge count-impact">Zona de impacto: 852</span>
+          <span class="count-badge count-total">Total: 15 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 0</span>
+          <span class="count-badge count-impact">Zona de impacto: 15</span>
         </div>
         <div class="img-pair">
           <div class="img-box">
@@ -710,9 +719,9 @@
       <div class="gallery-item">
         <h3>Imagem 1</h3>
         <div class="count-row">
-          <span class="count-badge count-total">Total: 2302 edificacoes</span>
-          <span class="count-badge count-safe">Seguras: 793</span>
-          <span class="count-badge count-impact">Zona de impacto: 1509</span>
+          <span class="count-badge count-total">Total: 8 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 2</span>
+          <span class="count-badge count-impact">Zona de impacto: 6</span>
         </div>
         <div class="img-pair">
           <div class="img-box">
@@ -730,9 +739,9 @@
       <div class="gallery-item">
         <h3>Imagem 2</h3>
         <div class="count-row">
-          <span class="count-badge count-total">Total: 2327 edificacoes</span>
-          <span class="count-badge count-safe">Seguras: 484</span>
-          <span class="count-badge count-impact">Zona de impacto: 1843</span>
+          <span class="count-badge count-total">Total: 17 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 2</span>
+          <span class="count-badge count-impact">Zona de impacto: 15</span>
         </div>
         <div class="img-pair">
           <div class="img-box">
@@ -750,9 +759,9 @@
       <div class="gallery-item">
         <h3>Imagem 3</h3>
         <div class="count-row">
-          <span class="count-badge count-total">Total: 2353 edificacoes</span>
-          <span class="count-badge count-safe">Seguras: 713</span>
-          <span class="count-badge count-impact">Zona de impacto: 1640</span>
+          <span class="count-badge count-total">Total: 3 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 0</span>
+          <span class="count-badge count-impact">Zona de impacto: 3</span>
         </div>
         <div class="img-pair">
           <div class="img-box">
@@ -770,9 +779,9 @@
       <div class="gallery-item">
         <h3>Imagem 4</h3>
         <div class="count-row">
-          <span class="count-badge count-total">Total: 2353 edificacoes</span>
-          <span class="count-badge count-safe">Seguras: 1610</span>
-          <span class="count-badge count-impact">Zona de impacto: 743</span>
+          <span class="count-badge count-total">Total: 12 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 8</span>
+          <span class="count-badge count-impact">Zona de impacto: 4</span>
         </div>
         <div class="img-pair">
           <div class="img-box">
@@ -790,9 +799,9 @@
       <div class="gallery-item">
         <h3>Imagem 5</h3>
         <div class="count-row">
-          <span class="count-badge count-total">Total: 2335 edificacoes</span>
-          <span class="count-badge count-safe">Seguras: 465</span>
-          <span class="count-badge count-impact">Zona de impacto: 1870</span>
+          <span class="count-badge count-total">Total: 26 edificacoes</span>
+          <span class="count-badge count-safe">Seguras: 12</span>
+          <span class="count-badge count-impact">Zona de impacto: 14</span>
         </div>
         <div class="img-pair">
           <div class="img-box">
