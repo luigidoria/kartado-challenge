@@ -641,12 +641,12 @@
           <tr>
             <td class="check">&#10003;</td>
             <td><strong>Pipeline medalhao Bronze -&gt; Silver -&gt; Gold</strong></td>
-            <td><code>python scripts/run_pipeline.py</code> (ingestao -&gt; footprints -&gt; projecao + anotacao)</td>
+            <td><code>python scripts/run_pipeline.py</code> (ingestao -&gt; inferencia YOLO -&gt; mascara de zona + anotacao)</td>
           </tr>
           <tr>
             <td class="check">&#10003;</td>
             <td><strong>Ponto de entrada de inferencia com flags CLI</strong></td>
-            <td><code>python scripts/run_footprint_inference.py --images data/bronze/img0.png</code></td>
+            <td><code>python scripts/pipeline_IA.py --images data/bronze/img0.png</code></td>
           </tr>
           <tr>
             <td class="check">&#10003;</td>
@@ -680,16 +680,20 @@
 
     <div class="legend">
       <div class="legend-item">
-        <div class="swatch" style="background:#27ae60;"></div>
-        <span>Contorno verde -- edificacao fora da zona de impacto (segura)</span>
+        <div class="swatch" style="background:#00ff00;"></div>
+        <span>Verde -- edificacao fora da zona de impacto (segura)</span>
       </div>
       <div class="legend-item">
         <div class="swatch" style="background:#c0392b;"></div>
-        <span>Contorno vermelho -- edificacao dentro da zona de impacto</span>
+        <span>Vermelho -- edificacao dentro da zona de impacto</span>
       </div>
       <div class="legend-item">
-        <div class="swatch" style="background:#e67e22;"></div>
-        <span>Borda laranja -- poligono KML da zona de impacto</span>
+        <div class="swatch" style="background:#3c0000;"></div>
+        <span>Tinta vermelha escura -- area preenchida da zona de impacto</span>
+      </div>
+      <div class="legend-item">
+        <div class="swatch" style="background:#ffffff; border:1px solid #444;"></div>
+        <span>Branco -- contorno da linha vermelha de delimitacao</span>
       </div>
     </div>
 
@@ -836,7 +840,7 @@
 <span class="comment"># 2. Instalar dependencias (Python 3.9+)</span>
 <span class="cmd">pip install</span> <span class="flag">-r</span> requirements.txt
 
-<span class="comment"># 3. Pipeline completo -- ingestao -&gt; footprints -&gt; projecao + anotacao das 6 imagens</span>
+<span class="comment"># 3. Pipeline completo -- ingestao -&gt; inferencia YOLO -&gt; mascara de zona + anotacao das 6 imagens</span>
 <span class="cmd">python scripts/run_pipeline.py</span>
 
 <span class="comment"># 4. Executar testes unitarios</span>
@@ -860,27 +864,24 @@
 
     <ul class="limit-list">
       <li>
-        <strong>Catalogo, nao deteccao visual.</strong>
-        Os numeros sao quantos footprints da Microsoft (capturados em 2020-2021 a partir de imagens Bing)
-        caem dentro do poligono de impacto. Nao podemos detectar edificacoes ausentes do catalogo,
-        nem distinguir as soterradas pela lama das que nunca existiram.
+        <strong>Dataset de treinamento reduzido.</strong>
+        O modelo foi treinado com apenas 6 imagens originais (24 apos augmentation), o que limita a
+        capacidade de generalizacao para cenas com iluminacao, escala ou resolucao diferentes.
       </li>
       <li>
-        <strong>Deriva da aproximacao afim.</strong>
-        A transformacao pixel-para-geo e linear, ajustada aos pixels vermelhos visiveis em cada imagem;
-        pode acumular distorcao perto das bordas, deslocando a projecao para edificacoes proximas
-        ao limite da zona.
+        <strong>Zona de impacto dependente da linha vermelha.</strong>
+        A delimitacao da zona e extraida dos pixels vermelhos visiveis na propria imagem; falhas ou
+        oclusoes na linha podem resultar em uma mascara incompleta e classificacoes incorretas nas bordas.
       </li>
       <li>
-        <strong>Cobertura incompleta para zona rural.</strong>
-        O dataset Microsoft Global ML Building Footprints (release 2020-2021) tem cobertura desigual em zonas
-        rurais brasileiras; habitacoes informais e estruturas pequenas sao sub-representadas.
+        <strong>Sem ground truth disponivel.</strong>
+        Nao existem rotulos reais de edificacoes para a regiao de Brumadinho, impossibilitando o
+        calculo de metricas absolutas de precisao (IoU, Recall) para o contexto especifico do desafio.
       </li>
       <li>
-        <strong>Limite de impacto convexo.</strong>
-        <code>close_pixel_polygon()</code> usa um inv. convexo dos pixels vermelhos; o limite real da lama
-        e nao-convexo (entrancias do vale do rio), o que pode classificar erroneamente edificacoes
-        em secoes re-entrantes.
+        <strong>Escala de inferencia fixa.</strong>
+        O modelo opera em uma resolucao de entrada fixa (imgsz 1760); edificacoes muito pequenas ou
+        imagens em escala muito diferente das usadas no treinamento podem ser subdetectadas.
       </li>
     </ul>
 

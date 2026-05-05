@@ -165,7 +165,7 @@ def annotate_and_count(
     overlay = img_array.copy()
 
     tint = np.zeros_like(overlay)
-    tint[inside_mask == 255] = (0, 60, 0)
+    tint[inside_mask == 255] = (60, 0, 0)
     cv2.addWeighted(tint, 0.5, overlay, 1.0, 0, overlay)
     overlay[bw == 255] = (255, 255, 255)
 
