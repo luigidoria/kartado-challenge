@@ -8,3 +8,4 @@ brum/mlruns/
 venv/
 __pycache__/
 .pytest_cache/
+!brum/data/raw/geo_builds.pt
