@@ -128,8 +128,7 @@ def stage_inference(
 
     from scripts.pipeline_IA import run_pipeline as yolo_run_pipeline
 
-    gold_dir      = (brum_root / cfg["paths"]["gold_dir"]).resolve()
-    annotated_dir = gold_dir / "annotated"
+    annotated_dir = (brum_root / cfg["paths"]["results_dir"]).resolve()
     conf          = cfg.get("yolo_confidence_threshold", 0.10)
 
     png_records = [r for r in bronze_records if r["file_type"] == "png"]

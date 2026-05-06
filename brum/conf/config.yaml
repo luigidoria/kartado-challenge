@@ -3,6 +3,7 @@ paths:
   bronze_dir: "data/bronze"
   silver_dir: "data/silver"
   gold_dir: "data/gold"
+  results_dir: "results"
   kml_path: "data/raw/limites_rejeitos_dia29_v2.kml"
 
 red_threshold:

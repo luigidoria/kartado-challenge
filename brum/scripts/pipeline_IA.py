@@ -367,7 +367,7 @@ def main() -> None:
     if args.output_dir:
         output_dir = Path(args.output_dir).resolve()
     else:
-        output_dir = (_BRUM_ROOT / cfg["paths"]["gold_dir"] / "annotated").resolve()
+        output_dir = (_BRUM_ROOT / cfg["paths"].get("results_dir", "results")).resolve()
 
     # Resolve JSON dir
     json_dir = Path(args.save_json).resolve() if args.save_json else None
