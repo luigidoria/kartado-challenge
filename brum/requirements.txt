@@ -13,3 +13,4 @@ requests==2.32.3
 ruff==0.4.7
 black==24.4.2
 pytest==8.2.2
+ultralytics
